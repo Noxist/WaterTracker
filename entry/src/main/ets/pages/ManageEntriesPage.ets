@@ -10,6 +10,7 @@ import router from '@ohos.router';
 import { Constants } from '../common/Constants';
 import { StorageService } from '../service/StorageService';
 import { HASyncService } from '../service/HASyncService';
+import { ServerService } from '../service/ServerService';
 import { WaterEntry, DayLog } from '../model/WaterModel';
 
 @Entry
@@ -35,6 +36,11 @@ struct ManageEntriesPage {
     this.entries = log.entries.slice().reverse();
     this.totalIntake = log.totalIntake;
     HASyncService.syncToHA(log);
+    // Trigger server sync after delete
+    const serverOn: boolean = await StorageService.isServerEnabled();
+    if (serverOn) {
+      ServerService.reportStatus();
+    }
   }
 
   private formatTime(timestamp: number): string {
