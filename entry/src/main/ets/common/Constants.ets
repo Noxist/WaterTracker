@@ -56,6 +56,21 @@ export class Constants {
   public static readonly DEFAULT_SERVER_TOKEN: string = 'bio_leandro_2026_secret';
   public static readonly SERVER_POLL_MS: number = 900000;
 
+  // ── Health monitoring ──
+  public static readonly KEY_HR_ENABLED: string = 'hr_monitoring_enabled';
+  public static readonly KEY_SLEEP_ENABLED: string = 'sleep_monitoring_enabled';
+  public static readonly KEY_LAST_HR_PUSH_TIME: string = 'last_hr_push_time';
+  public static readonly HR_SAMPLE_INTERVAL_MS: number = 600000;   // 10 min
+  public static readonly HR_PUSH_INTERVAL_MS: number = 900000;     // 15 min (match server poll)
+  public static readonly SLEEP_PUSH_DELAY_MS: number = 300000;     // 5 min after wake
+  public static readonly HR_SAMPLE_INTERVAL_NS: number = 600000000000; // 10 min in nanoseconds for sensor API
+  public static readonly HR_DEBOUNCE_MS: number = 840000;          // 14 min debounce
+
+  // ── Server→Watch sync ──
+  // Stores the last server-total for today so addWater reports serverBase + localDelta.
+  public static readonly KEY_SERVER_BASE_INTAKE: string = 'server_base_intake';
+  public static readonly KEY_SERVER_BASE_DATE: string = 'server_base_date';
+
   // ── Additional preference keys ──
   public static readonly KEY_DRINK_SIZE_1: string = 'drink_size_1';
   public static readonly KEY_DRINK_SIZE_2: string = 'drink_size_2';

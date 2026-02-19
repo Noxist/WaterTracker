@@ -13,6 +13,7 @@ import { Constants } from '../common/Constants';
 import { StorageService } from '../service/StorageService';
 import { HASyncService } from '../service/HASyncService';
 import { ServerService } from '../service/ServerService';
+import { HealthMonitorService } from '../service/HealthMonitorService';
 
 @Entry
 @Component
@@ -30,6 +31,10 @@ struct SettingsPage {
   @State private serverConnectionStatus: string = '';
   @State private editingGoal: boolean = false;
   @State private editingDrinks: boolean = false;
+  @State private hrEnabled: boolean = false;
+  @State private sleepEnabled: boolean = false;
+  @State private hrTestStatus: string = '';
+  @State private sleepTestStatus: string = '';
 
   aboutToAppear(): void {
     this.loadSettings();
@@ -46,6 +51,8 @@ struct SettingsPage {
     this.drinkSize1 = sizes[0];
     this.drinkSize2 = sizes[1];
     this.drinkSize3 = sizes[2];
+    this.hrEnabled = await StorageService.isHREnabled();
+    this.sleepEnabled = await StorageService.isSleepEnabled();
   }
 
   private adjustGoal(delta: number): void {
@@ -548,6 +555,144 @@ struct SettingsPage {
                 .width('100%')
             }
           }
+        }
+        .backgroundColor(Constants.COLOR_SURFACE)
+        .borderRadius(16)
+        .margin({ bottom: 8 })
+        .clip(true)
+
+        // ═══════════════════════════════════════════
+        // Health Monitoring — HR + Sleep toggles with test buttons
+        // ═══════════════════════════════════════════
+        Column() {
+          // Section header
+          Row() {
+            this.settingIcon('🫀', '#C62828')
+
+            Text('Health Monitoring')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Constants.COLOR_TEXT_PRIMARY)
+              .layoutWeight(1)
+          }
+          .width('100%')
+          .height(48)
+          .padding({ left: 14, right: 14 })
+          .alignItems(VerticalAlign.Center)
+
+          Divider()
+            .color(Constants.COLOR_PROGRESS_BG)
+            .margin({ left: 14, right: 14 })
+
+          // Heart Rate toggle row
+          Row() {
+            Text('Heart Rate')
+              .fontSize(13)
+              .fontColor(Constants.COLOR_TEXT_PRIMARY)
+              .layoutWeight(1)
+
+            Toggle({ type: ToggleType.Switch, isOn: this.hrEnabled })
+              .selectedColor(Constants.COLOR_PRIMARY)
+              .onChange((isOn: boolean) => {
+                this.hrEnabled = isOn;
+                StorageService.setHREnabled(isOn);
+                if (isOn) {
+                  HealthMonitorService.startHR();
+                } else {
+                  HealthMonitorService.stopHR();
+                }
+              })
+
+            Button('Test')
+              .fontSize(11)
+              .fontWeight(FontWeight.Medium)
+              .height(32)
+              .width(52)
+              .borderRadius(16)
+              .backgroundColor(Constants.COLOR_PROGRESS_BG)
+              .fontColor(Constants.COLOR_TEXT_PRIMARY)
+              .margin({ left: 8 })
+              .onClick(async () => {
+                this.hrTestStatus = '...';
+                const result = await ServerService.testHealthPush();
+                this.hrTestStatus = result.success ? '✓' : '✗';
+                setTimeout(() => { this.hrTestStatus = ''; }, 3000);
+              })
+
+            if (this.hrTestStatus !== '') {
+              Text(this.hrTestStatus)
+                .fontSize(14)
+                .fontColor(
+                  this.hrTestStatus === '✓'
+                    ? Constants.COLOR_SUCCESS
+                    : Constants.COLOR_WARNING
+                )
+                .margin({ left: 6 })
+                .width(20)
+            }
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 8, bottom: 4 })
+          .alignItems(VerticalAlign.Center)
+
+          // Sleep Track toggle row
+          Row() {
+            Text('Sleep Track')
+              .fontSize(13)
+              .fontColor(Constants.COLOR_TEXT_PRIMARY)
+              .layoutWeight(1)
+
+            Toggle({ type: ToggleType.Switch, isOn: this.sleepEnabled })
+              .selectedColor(Constants.COLOR_PRIMARY)
+              .onChange((isOn: boolean) => {
+                this.sleepEnabled = isOn;
+                StorageService.setSleepEnabled(isOn);
+                if (isOn) {
+                  HealthMonitorService.startSleep();
+                } else {
+                  HealthMonitorService.stopSleep();
+                }
+              })
+
+            Button('Test')
+              .fontSize(11)
+              .fontWeight(FontWeight.Medium)
+              .height(32)
+              .width(52)
+              .borderRadius(16)
+              .backgroundColor(Constants.COLOR_PROGRESS_BG)
+              .fontColor(Constants.COLOR_TEXT_PRIMARY)
+              .margin({ left: 8 })
+              .onClick(async () => {
+                this.sleepTestStatus = '...';
+                const result = await ServerService.testHealthPush();
+                this.sleepTestStatus = result.success ? '✓' : '✗';
+                setTimeout(() => { this.sleepTestStatus = ''; }, 3000);
+              })
+
+            if (this.sleepTestStatus !== '') {
+              Text(this.sleepTestStatus)
+                .fontSize(14)
+                .fontColor(
+                  this.sleepTestStatus === '✓'
+                    ? Constants.COLOR_SUCCESS
+                    : Constants.COLOR_WARNING
+                )
+                .margin({ left: 6 })
+                .width(20)
+            }
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 4, bottom: 6 })
+          .alignItems(VerticalAlign.Center)
+
+          // Caption
+          Text('Data is sent to your health server every 15 min')
+            .fontSize(10)
+            .fontColor(Constants.COLOR_TEXT_SECONDARY)
+            .textAlign(TextAlign.Center)
+            .width('100%')
+            .padding({ bottom: 10 })
         }
         .backgroundColor(Constants.COLOR_SURFACE)
         .borderRadius(16)

@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "Water Tracker"
+    },
+    {
+      "name": "health_monitoring_reason",
+      "value": "Heart rate and sleep monitoring for health tracking"
     }
   ]
 }

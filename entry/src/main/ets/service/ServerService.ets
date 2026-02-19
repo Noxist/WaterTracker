@@ -12,7 +12,7 @@
  */
 import http from '@ohos.net.http';
 import { StorageService } from './StorageService';
-import { DayLog, ServerResponse, HydrationCurveData, VelocityWarning } from '../model/WaterModel';
+import { DayLog, ServerResponse, HydrationCurveData, VelocityWarning, HealthPushPayload } from '../model/WaterModel';
 import { Constants } from '../common/Constants';
 import hilog from '@ohos.hilog';
 
@@ -42,6 +42,7 @@ class ReportResponseInstruction {
   public hydration_curve: HydrationCurveData | null = null;
   public velocity_warning: VelocityWarning | null = null;
   public events_today: number = 0;
+  public adaptive_curve: object | null = null;
 }
 
 class ReportResponse {
@@ -76,9 +77,14 @@ export class ServerService {
       ? log.entries[log.entries.length - 1]
       : null;
 
+    // Use serverBase + localDelta so the watch never resets the server's total.
+    // Example: server reported 1200 ml, watch added 250 ml locally → send 1450 ml.
+    const serverBase: number = await StorageService.getServerBaseIntake();
+    const trueIntake: number = serverBase + log.totalIntake;
+
     const report: WatchStatusReport = new WatchStatusReport();
     report.device_id = 'watch_ultra2';
-    report.current_intake = log.totalIntake;
+    report.current_intake = trueIntake;
     report.daily_goal = goal;
     report.entry_count = log.entries.length;
     report.last_drink_time = lastEntry ? new Date(lastEntry.timestamp).toISOString() : '';
@@ -110,7 +116,8 @@ export class ServerService {
             timestamp: ins.timestamp,
             hydration_curve: ins.hydration_curve,
             velocity_warning: ins.velocity_warning,
-            events_today: ins.events_today
+            events_today: ins.events_today,
+            adaptive_curve: ins.adaptive_curve ?? null
           };
           return sr;
         }
@@ -239,6 +246,108 @@ export class ServerService {
       if (response.responseCode === 200) {
         result.success = true;
         result.message = 'Connected';
+      } else if (response.responseCode === 401) {
+        result.success = false;
+        result.message = 'Invalid token (401)';
+      } else {
+        result.success = false;
+        result.message = `HTTP ${response.responseCode}`;
+      }
+      return result;
+    } catch (err) {
+      result.success = false;
+      result.message = 'Connection failed';
+      return result;
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  /**
+   * Push a heart-rate snapshot to the server.
+   * POST /api/health with source="watch".
+   */
+  public static async pushHeartRate(payload: HealthPushPayload): Promise<boolean> {
+    return ServerService.pushHealth(payload);
+  }
+
+  /**
+   * Push a sleep summary to the server.
+   * POST /api/health with source="watch", sleep_duration + sleep_confidence.
+   */
+  public static async pushSleep(payload: HealthPushPayload): Promise<boolean> {
+    return ServerService.pushHealth(payload);
+  }
+
+  /**
+   * Internal helper — POST /api/health with the given payload.
+   */
+  private static async pushHealth(payload: HealthPushPayload): Promise<boolean> {
+    const url: string = await StorageService.getServerUrl();
+    const token: string = await StorageService.getServerToken();
+    if (url.length === 0) {
+      return false;
+    }
+
+    const httpRequest = http.createHttp();
+    try {
+      const response = await httpRequest.request(`${url}/api/health`, {
+        method: http.RequestMethod.POST,
+        header: buildServerHeader(token),
+        extraData: JSON.stringify(payload),
+        connectTimeout: 15000,
+        readTimeout: 15000
+      } as http.HttpRequestOptions);
+
+      const ok: boolean = response.responseCode >= 200 && response.responseCode < 300;
+      if (ok) {
+        hilog.info(0x0000, TAG, 'Health push OK: HR=%{public}s sleep=%{public}s',
+          String(payload.heart_rate ?? '-'), String(payload.sleep_duration ?? '-'));
+      } else {
+        hilog.warn(0x0000, TAG, 'Health push HTTP %{public}d', response.responseCode);
+      }
+      return ok;
+    } catch (err) {
+      hilog.error(0x0000, TAG, 'Health push error: %{public}s', String(err));
+      return false;
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  /**
+   * One-shot test push (used by the “Test” buttons in Settings).
+   * Sends a dummy snapshot with source="watch" and heart_rate=0.
+   * Returns { success, message } like testConnection().
+   */
+  public static async testHealthPush(): Promise<ServerTestResult> {
+    const url: string = await StorageService.getServerUrl();
+    const token: string = await StorageService.getServerToken();
+    const result: ServerTestResult = new ServerTestResult();
+    if (url.length === 0) {
+      result.success = false;
+      result.message = 'No server URL';
+      return result;
+    }
+
+    const testPayload: HealthPushPayload = {
+      source: 'watch',
+      heart_rate: 0
+    };
+
+    const httpRequest = http.createHttp();
+    try {
+      const response = await httpRequest.request(`${url}/api/health`, {
+        method: http.RequestMethod.POST,
+        header: buildServerHeader(token),
+        extraData: JSON.stringify(testPayload),
+        connectTimeout: 10000,
+        readTimeout: 10000
+      } as http.HttpRequestOptions);
+
+      if (response.responseCode === 200) {
+        result.success = true;
+        result.message = 'Health endpoint OK';
       } else if (response.responseCode === 401) {
         result.success = false;
         result.message = 'Invalid token (401)';

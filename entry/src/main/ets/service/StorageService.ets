@@ -242,6 +242,83 @@ export class StorageService {
     await StorageService.preferences.flush();
   }
 
+  // ---------- Server→Watch base-intake sync ----------
+
+  /**
+   * Returns the server-side base intake for today (ml).
+   * 0 if none stored or date has changed (midnight rollover).
+   */
+  public static async getServerBaseIntake(): Promise<number> {
+    if (!StorageService.preferences) { return 0; }
+    const storedDate = await StorageService.preferences.get(Constants.KEY_SERVER_BASE_DATE, '') as string;
+    const today: string = new Date().toISOString().substring(0, 10);
+    if (storedDate !== today) {
+      return 0;
+    }
+    const val = await StorageService.preferences.get(Constants.KEY_SERVER_BASE_INTAKE, 0);
+    return val as number;
+  }
+
+  /**
+   * Persists the server-reported total for today so reportStatus() can send
+   * serverBase + localDelta as current_intake (prevents resetting server total).
+   */
+  public static async setServerBaseIntake(serverTotal: number): Promise<void> {
+    if (!StorageService.preferences) { return; }
+    const today: string = new Date().toISOString().substring(0, 10);
+    await StorageService.preferences.put(Constants.KEY_SERVER_BASE_INTAKE, serverTotal);
+    await StorageService.preferences.put(Constants.KEY_SERVER_BASE_DATE, today);
+    await StorageService.preferences.flush();
+  }
+
+  /**
+   * Clears the server base intake on midnight rollover.
+   */
+  public static async clearServerBaseIntake(): Promise<void> {
+    if (!StorageService.preferences) { return; }
+    await StorageService.preferences.put(Constants.KEY_SERVER_BASE_INTAKE, 0);
+    await StorageService.preferences.put(Constants.KEY_SERVER_BASE_DATE, '');
+    await StorageService.preferences.flush();
+  }
+
+  // ---------- Health monitoring ----------
+
+  public static async isHREnabled(): Promise<boolean> {
+    if (!StorageService.preferences) return false;
+    const val = await StorageService.preferences.get(Constants.KEY_HR_ENABLED, false);
+    return val as boolean;
+  }
+
+  public static async setHREnabled(enabled: boolean): Promise<void> {
+    if (!StorageService.preferences) return;
+    await StorageService.preferences.put(Constants.KEY_HR_ENABLED, enabled);
+    await StorageService.preferences.flush();
+  }
+
+  public static async isSleepEnabled(): Promise<boolean> {
+    if (!StorageService.preferences) return false;
+    const val = await StorageService.preferences.get(Constants.KEY_SLEEP_ENABLED, false);
+    return val as boolean;
+  }
+
+  public static async setSleepEnabled(enabled: boolean): Promise<void> {
+    if (!StorageService.preferences) return;
+    await StorageService.preferences.put(Constants.KEY_SLEEP_ENABLED, enabled);
+    await StorageService.preferences.flush();
+  }
+
+  public static async getLastHRPushTime(): Promise<number> {
+    if (!StorageService.preferences) return 0;
+    const val = await StorageService.preferences.get(Constants.KEY_LAST_HR_PUSH_TIME, 0);
+    return val as number;
+  }
+
+  public static async setLastHRPushTime(timestamp: number): Promise<void> {
+    if (!StorageService.preferences) return;
+    await StorageService.preferences.put(Constants.KEY_LAST_HR_PUSH_TIME, timestamp);
+    await StorageService.preferences.flush();
+  }
+
   // ---------- Entry management ----------
 
   /**

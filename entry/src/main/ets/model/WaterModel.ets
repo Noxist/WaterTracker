@@ -85,6 +85,24 @@ export interface ServerResponse {
   hydration_curve: HydrationCurveData | null;
   velocity_warning: VelocityWarning | null;
   events_today: number;
+  adaptive_curve: object | null;   // catch-up curve data (rendering out of scope)
+}
+
+/**
+ * Payload sent to POST /api/health from the watch.
+ * All fields except `source` are optional — send only what was collected.
+ */
+export interface HealthPushPayload {
+  heart_rate?: number;
+  resting_hr?: number;
+  hrv?: number;
+  sleep_duration?: number;
+  sleep_confidence?: number;
+  spo2?: number;
+  steps?: number;
+  calories?: number;
+  source: string;        // always "watch"
+  timestamp?: string;
 }
 
 /**

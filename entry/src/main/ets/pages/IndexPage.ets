@@ -32,6 +32,7 @@ struct IndexPage {
   @State private progress: number = 0;
   @State private entryCount: number = 0;
   @State private syncStatus: string = '';
+  @State private serverSyncNote: string = '';  // shows "↑ 1200 ml" briefly after server pull
   @State private selectedAmount: number = 250;
   @State private crownAccumulator: number = 0;
   @State private drinkSizes: number[] = [100, 250, 500];
@@ -104,7 +105,8 @@ struct IndexPage {
       this.selectedAmount = this.drinkSizes.length > 0 ? this.drinkSizes[0] : 250;
     }
     const log: DayLog = await StorageService.getTodayLog();
-    this.currentIntake = log.totalIntake;
+    const serverBase: number = await StorageService.getServerBaseIntake();
+    this.currentIntake = serverBase + log.totalIntake;
     this.entryCount = log.entries.length;
     this.updateProgress();
   }
@@ -161,6 +163,7 @@ struct IndexPage {
     const todayStr: string = WaterModel.getTodayDateString();
     const log: DayLog = await StorageService.getTodayLog();
     if (log.date !== todayStr) {
+      await StorageService.clearServerBaseIntake();
       await this.loadMainData();
       return;
     }
@@ -185,6 +188,23 @@ struct IndexPage {
         }
         // Store hydration curve data for the curve panel
         if (ins.hydration_curve !== null && ins.hydration_curve !== undefined) {
+          // ── Server→Watch sync ──
+          // The server's hydration_curve.current_ml is the authoritative total
+          // (aggregated from watch, HA, Google Fit, manual entries).
+          // If the server knows more than the watch, pull the server total up.
+          const serverTotal: number = ins.hydration_curve.current_ml;
+          if (serverTotal > this.currentIntake) {
+            this.currentIntake = serverTotal;
+            this.updateProgress();
+            this.serverSyncNote = `↑ ${serverTotal} ml`;
+            this.syncStatus = 'server';
+            // Persist as base so reportStatus() sends serverBase + localDelta
+            StorageService.setServerBaseIntake(serverTotal);
+            setTimeout(() => {
+              this.serverSyncNote = '';
+              this.syncStatus = '';
+            }, 4000);
+          }
           this.curveData = ins.hydration_curve;
           if (this.curveReady && this.activePanel === 0) {
             this.drawHydrationCurve();
@@ -226,11 +246,13 @@ struct IndexPage {
 
   private async addWater(amount: number): Promise<void> {
     const log: DayLog = await StorageService.addWaterEntry(amount);
-    this.currentIntake = log.totalIntake;
+    const serverBase: number = await StorageService.getServerBaseIntake();
+    this.currentIntake = serverBase + log.totalIntake;
     this.entryCount = log.entries.length;
     this.updateProgress();
     this.reminderMessage = '';
     this.serverMessage = '';
+    this.serverSyncNote = '';
 
     // Local overdrinking velocity check (last 60 min) — must run BEFORE server poll
     this.checkVelocity(log);
@@ -420,7 +442,8 @@ struct IndexPage {
   private async undoLast(): Promise<void> {
     if (this.entryCount === 0) { return; }
     const log: DayLog = await StorageService.undoLastEntry();
-    this.currentIntake = log.totalIntake;
+    const serverBase: number = await StorageService.getServerBaseIntake();
+    this.currentIntake = serverBase + log.totalIntake;
     this.entryCount = log.entries.length;
     this.updateProgress();
     // Reset velocity cooldown on undo so we re-evaluate cleanly
@@ -699,13 +722,15 @@ struct IndexPage {
       Text(this.syncStatus === 'syncing' ? '...'
         : this.syncStatus === 'synced' ? 'ok'
           : this.syncStatus === 'offline' ? '!'
-            : ' ')
+            : this.syncStatus === 'server' ? '↑'
+              : ' ')
         .fontSize(9)
         .fontColor(
           this.syncStatus === 'synced' ? Constants.COLOR_SUCCESS
             : this.syncStatus === 'syncing' ? Constants.COLOR_PRIMARY
               : this.syncStatus === 'offline' ? Constants.COLOR_WARNING
-                : Color.Transparent
+                : this.syncStatus === 'server' ? Constants.COLOR_ACCENT
+                  : Color.Transparent
         )
         .height(10)
         .textAlign(TextAlign.Center)
@@ -738,6 +763,14 @@ struct IndexPage {
               .fontSize(7)
               .fontWeight(FontWeight.Bold)
               .fontColor('#FF3B30')
+              .textAlign(TextAlign.Center)
+              .maxLines(1)
+              .constraintSize({ maxWidth: 80 })
+              .margin({ top: 2 })
+          } else if (this.serverSyncNote !== '') {
+            Text(this.serverSyncNote)
+              .fontSize(7)
+              .fontColor(Constants.COLOR_ACCENT)
               .textAlign(TextAlign.Center)
               .maxLines(1)
               .constraintSize({ maxWidth: 80 })

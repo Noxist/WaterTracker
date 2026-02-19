@@ -8,6 +8,7 @@ import Want from '@ohos.app.ability.Want';
 import window from '@ohos.window';
 import hilog from '@ohos.hilog';
 import { StorageService } from '../service/StorageService';
+import { HealthMonitorService } from '../service/HealthMonitorService';
 
 const TAG: string = 'EntryAbility';
 
@@ -17,6 +18,8 @@ export default class EntryAbility extends UIAbility {
     hilog.info(0x0000, TAG, 'onCreate');
     // Initialise the preferences store before any page tries to read data.
     await StorageService.init(this.context);
+    // Start health monitoring (HR + sleep) if enabled in preferences.
+    await HealthMonitorService.init();
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
@@ -44,5 +47,7 @@ export default class EntryAbility extends UIAbility {
 
   onDestroy(): void {
     hilog.info(0x0000, TAG, 'onDestroy');
+    HealthMonitorService.stopHR();
+    HealthMonitorService.stopSleep();
   }
 }
