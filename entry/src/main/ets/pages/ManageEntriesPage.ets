@@ -36,9 +36,10 @@ struct ManageEntriesPage {
     this.entries = log.entries.slice().reverse();
     this.totalIntake = log.totalIntake;
     HASyncService.syncToHA(log);
-    // Trigger server sync after delete
+    // Propagate deletion to server DB
     const serverOn: boolean = await StorageService.isServerEnabled();
     if (serverOn) {
+      ServerService.deleteLastIntake();
       ServerService.reportStatus();
     }
   }

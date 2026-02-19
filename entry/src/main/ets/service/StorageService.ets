@@ -143,18 +143,18 @@ export class StorageService {
 
   /**
    * Returns the last 7 days of water logs (oldest first).
+   * Parallelizes all 7 reads with Promise.all().
    */
   public static async getWeekHistory(): Promise<DayLog[]> {
-    const history: DayLog[] = [];
     const now = new Date();
+    const promises: Promise<DayLog>[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now.getTime());
       d.setDate(d.getDate() - i);
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const log = await StorageService.getDayLog(dateStr);
-      history.push(log);
+      promises.push(StorageService.getDayLog(dateStr));
     }
-    return history;
+    return Promise.all(promises);
   }
 
   // ---------- Drink sizes ----------

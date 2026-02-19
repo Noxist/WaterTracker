@@ -71,7 +71,7 @@ export class HASyncService {
     attrs.friendly_name = 'Water Intake Today';
     attrs.icon = 'mdi:cup-water';
     attrs.device_class = 'water';
-    attrs.state_class = 'total_increasing';
+    attrs.state_class = 'measurement';
     attrs.date = dayLog.date;
     attrs.entry_count = dayLog.entries.length;
     attrs.last_entry_amount = lastEntry ? lastEntry.amount : 0;

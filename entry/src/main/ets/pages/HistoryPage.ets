@@ -43,7 +43,7 @@ struct HistoryPage {
       return 'Yday';
     }
     const days: string[] = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const d = new Date(dateStr + 'T00:00:00');
+    const d = new Date(dateStr + 'T12:00:00');
     return days[d.getDay()];
   }
 

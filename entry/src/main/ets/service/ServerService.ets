@@ -12,7 +12,7 @@
  */
 import http from '@ohos.net.http';
 import { StorageService } from './StorageService';
-import { DayLog, ServerResponse, HydrationCurveData } from '../model/WaterModel';
+import { DayLog, ServerResponse, HydrationCurveData, VelocityWarning } from '../model/WaterModel';
 import { Constants } from '../common/Constants';
 import hilog from '@ohos.hilog';
 
@@ -32,6 +32,23 @@ class ServerTestResult {
   public message: string = '';
 }
 
+class ReportResponseInstruction {
+  public message: string = '';
+  public recommended_amount: number = 0;
+  public priority: string = '';
+  public deadline_minutes: number = 0;
+  public daily_target_override: number = 0;
+  public timestamp: string = '';
+  public hydration_curve: HydrationCurveData | null = null;
+  public velocity_warning: VelocityWarning | null = null;
+  public events_today: number = 0;
+}
+
+class ReportResponse {
+  public status: string = '';
+  public instruction: ReportResponseInstruction | null = null;
+}
+
 function buildServerHeader(token: string): object {
   if (token.length > 0) {
     return JSON.parse(`{"Authorization":"Bearer ${token}","Content-Type":"application/json"}`);
@@ -43,12 +60,14 @@ export class ServerService {
 
   /**
    * POST current hydration status to the server.
+   * The server now returns the instruction inline, so we parse and return it.
+   * Returns the embedded ServerResponse on success, or null on error.
    */
-  public static async reportStatus(): Promise<boolean> {
+  public static async reportStatus(): Promise<ServerResponse | null> {
     const url: string = await StorageService.getServerUrl();
     const token: string = await StorageService.getServerToken();
     if (url.length === 0) {
-      return false;
+      return null;
     }
 
     const log: DayLog = await StorageService.getTodayLog();
@@ -76,15 +95,33 @@ export class ServerService {
       } as http.HttpRequestOptions);
 
       const ok: boolean = response.responseCode >= 200 && response.responseCode < 300;
-      if (ok) {
+      if (ok && response.result) {
         hilog.info(0x0000, TAG, 'Status reported: %{public}d ml', log.totalIntake);
+        // Parse the merged response which contains the instruction
+        const parsed: ReportResponse = JSON.parse(response.result as string) as ReportResponse;
+        if (parsed.instruction !== null && parsed.instruction !== undefined) {
+          const ins: ReportResponseInstruction = parsed.instruction;
+          const sr: ServerResponse = {
+            message: ins.message,
+            recommended_amount: ins.recommended_amount,
+            priority: ins.priority,
+            deadline_minutes: ins.deadline_minutes,
+            daily_target_override: ins.daily_target_override,
+            timestamp: ins.timestamp,
+            hydration_curve: ins.hydration_curve,
+            velocity_warning: ins.velocity_warning,
+            events_today: ins.events_today
+          };
+          return sr;
+        }
+        return null;
       } else {
         hilog.warn(0x0000, TAG, 'Report HTTP %{public}d', response.responseCode);
+        return null;
       }
-      return ok;
     } catch (err) {
       hilog.error(0x0000, TAG, 'Report error: %{public}s', String(err));
-      return false;
+      return null;
     } finally {
       httpRequest.destroy();
     }
@@ -135,6 +172,43 @@ export class ServerService {
     } catch (err) {
       hilog.error(0x0000, TAG, 'Fetch error: %{public}s', String(err));
       return null;
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  /**
+   * DELETE the most recent water event on the server (undo/delete propagation).
+   * Calls DELETE /api/water/intake/last.
+   * Returns the new server total in ml, or -1 on error.
+   */
+  public static async deleteLastIntake(): Promise<number> {
+    const url: string = await StorageService.getServerUrl();
+    const token: string = await StorageService.getServerToken();
+    if (url.length === 0) {
+      return -1;
+    }
+
+    const httpRequest = http.createHttp();
+    try {
+      const response = await httpRequest.request(`${url}/api/water/intake/last`, {
+        method: http.RequestMethod.DELETE,
+        header: buildServerHeader(token),
+        connectTimeout: 15000,
+        readTimeout: 15000
+      } as http.HttpRequestOptions);
+
+      if (response.responseCode >= 200 && response.responseCode < 300 && response.result) {
+        const parsed = JSON.parse(response.result as string) as Record<string, Object>;
+        const newTotal: number = parsed['new_total_ml'] as number;
+        hilog.info(0x0000, TAG, 'Deleted last intake, server total now %{public}d ml', newTotal);
+        return newTotal;
+      }
+      hilog.warn(0x0000, TAG, 'Delete-last HTTP %{public}d', response.responseCode);
+      return -1;
+    } catch (err) {
+      hilog.error(0x0000, TAG, 'Delete-last error: %{public}s', String(err));
+      return -1;
     } finally {
       httpRequest.destroy();
     }

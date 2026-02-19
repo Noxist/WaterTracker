@@ -101,7 +101,7 @@ struct IndexPage {
     this.dailyGoal = await StorageService.getDailyGoal();
     this.drinkSizes = await StorageService.getDrinkSizes();
     if (this.drinkSizes.indexOf(this.selectedAmount) < 0) {
-      this.selectedAmount = this.drinkSizes[1];
+      this.selectedAmount = this.drinkSizes.length > 0 ? this.drinkSizes[0] : 250;
     }
     const log: DayLog = await StorageService.getTodayLog();
     this.currentIntake = log.totalIntake;
@@ -156,9 +156,22 @@ struct IndexPage {
   private async pollServer(): Promise<void> {
     const enabled: boolean = await StorageService.isServerEnabled();
     if (!enabled) { return; }
+
+    // Midnight rollover: if today's date changed, reload everything
+    const todayStr: string = WaterModel.getTodayDateString();
+    const log: DayLog = await StorageService.getTodayLog();
+    if (log.date !== todayStr) {
+      await this.loadMainData();
+      return;
+    }
+
     try {
-      await ServerService.reportStatus();
-      const ins: ServerResponse | null = await ServerService.fetchInstruction();
+      // reportStatus() now returns the instruction inline (merged endpoint)
+      let ins: ServerResponse | null = await ServerService.reportStatus();
+      // Fallback to standalone fetch if merged response didn't include instruction
+      if (ins === null) {
+        ins = await ServerService.fetchInstruction();
+      }
       if (ins !== null) {
         // Only update server message if no velocity warning is active
         if (ins.message.length > 0 && Date.now() > this.velocityWarningUntil) {
@@ -173,9 +186,16 @@ struct IndexPage {
         // Store hydration curve data for the curve panel
         if (ins.hydration_curve !== null && ins.hydration_curve !== undefined) {
           this.curveData = ins.hydration_curve;
-          if (this.curveReady) {
+          if (this.curveReady && this.activePanel === 0) {
             this.drawHydrationCurve();
           }
+        }
+        // Handle server-side velocity warning
+        if (ins.velocity_warning !== null && ins.velocity_warning !== undefined && ins.velocity_warning.alert) {
+          this.velocityWarning = `⚠ ${ins.velocity_warning.recent_ml} ml/h — too fast!`;
+          this.velocityWarningUntil = Date.now() + 30000;
+          this.serverMessage = '';
+          this.pacingMessage = '';
         }
       }
     } catch (_e) { /* silent */ }
@@ -272,6 +292,14 @@ struct IndexPage {
       this.pacingMessage = '';
       return;
     }
+    // Midnight rollover guard — if the date changed, skip pacing and reload data
+    const curHourNow: number = new Date().getHours();
+    if (curHourNow < 1) {
+      // Right after midnight, force reload to pick up the new day
+      this.loadMainData();
+      this.pacingMessage = '';
+      return;
+    }
     if (this.curveData === null) {
       // Generate a simple local fallback curve if no server data
       this.generateLocalCurve();
@@ -328,8 +356,8 @@ struct IndexPage {
     }
     curve.targets = newTargets;
 
-    // Redraw canvas if visible
-    if (this.curveReady) {
+    // Redraw canvas only if curve panel is visible
+    if (this.curveReady && this.activePanel === 0) {
       this.drawHydrationCurve();
     }
   }
@@ -401,8 +429,12 @@ struct IndexPage {
     this.checkVelocity(log);
     this.checkPacing();
     HASyncService.syncToHA(log);
+    // Propagate delete to server DB
     const serverOn: boolean = await StorageService.isServerEnabled();
-    if (serverOn) { this.pollServer(); }
+    if (serverOn) {
+      ServerService.deleteLastIntake();
+      this.pollServer();
+    }
   }
 
   private getProgressColor(): string {
@@ -764,7 +796,7 @@ struct IndexPage {
 
       // Amount selector (12 vp)
       Row() {
-        ForEach(this.drinkSizes, (amt: number) => {
+        ForEach(this.drinkSizes, (amt: number, index: number) => {
           Text(`${amt}`)
             .fontSize(9)
             .fontColor(this.selectedAmount === amt
@@ -775,7 +807,7 @@ struct IndexPage {
               : FontWeight.Normal)
             .onClick(() => { this.selectedAmount = amt; })
             .padding({ left: 6, right: 6 })
-        }, (amt: number) => amt.toString())
+        }, (_amt: number, index: number) => `size_${index}`)
       }
       .justifyContent(FlexAlign.Center)
       .margin({ top: 2 })
@@ -1263,6 +1295,7 @@ struct IndexPage {
     .backgroundColor(Constants.COLOR_BACKGROUND)
     .onChange((index: number) => {
       this.activePanel = index;
+      this.crownAccumulator = 0;
       if (index === 0) { this.loadCurveData(); }
       if (index === 1) { this.loadMainData(); }
       if (index === 2) { this.loadSettingsData(); }

@@ -62,8 +62,18 @@ export class WaterModel {
 }
 
 /**
+ * Velocity warning from the server's overhydration check.
+ */
+export interface VelocityWarning {
+  alert: boolean;
+  message: string;
+  recent_ml: number;
+  window_minutes: number;
+}
+
+/**
  * Flat response from the remote health monitoring server.
- * Returned by GET /api/water/instruction.
+ * Returned by GET /api/water/instruction or embedded in POST /api/water/report.
  */
 export interface ServerResponse {
   message: string;
@@ -73,6 +83,8 @@ export interface ServerResponse {
   daily_target_override: number;
   timestamp: string;
   hydration_curve: HydrationCurveData | null;
+  velocity_warning: VelocityWarning | null;
+  events_today: number;
 }
 
 /**
