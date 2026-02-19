@@ -40,6 +40,7 @@ struct IndexPage {
   @State private reminderMessage: string = '';
   @State private velocityWarning: string = '';
   @State private pacingMessage: string = '';
+  private velocityWarningUntil: number = 0;
 
   // ── Hydration curve panel ──
   @State private curveData: HydrationCurveData | null = null;
@@ -159,7 +160,8 @@ struct IndexPage {
       await ServerService.reportStatus();
       const ins: ServerResponse | null = await ServerService.fetchInstruction();
       if (ins !== null) {
-        if (ins.message.length > 0) {
+        // Only update server message if no velocity warning is active
+        if (ins.message.length > 0 && Date.now() > this.velocityWarningUntil) {
           this.serverMessage = ins.message;
           this.serverAmount = ins.recommended_amount;
         }
@@ -210,8 +212,13 @@ struct IndexPage {
     this.reminderMessage = '';
     this.serverMessage = '';
 
-    // Local overdrinking velocity check (last 60 min)
+    // Local overdrinking velocity check (last 60 min) — must run BEFORE server poll
     this.checkVelocity(log);
+
+    // Update pacing based on cached curve (skip if velocity warning active)
+    if (this.velocityWarning === '') {
+      this.checkPacing();
+    }
 
     // Sync to HA
     const isSyncEnabled: boolean = await StorageService.isHASyncEnabled();
@@ -227,9 +234,6 @@ struct IndexPage {
     if (serverOn) {
       this.pollServer();
     }
-
-    // Update pacing based on cached curve
-    this.checkPacing();
   }
 
   /**
@@ -247,7 +251,13 @@ struct IndexPage {
     }
     if (recentMl > 800) {
       this.velocityWarning = `⚠ ${recentMl} ml/h — zu schnell!`;
-    } else {
+      // Lock velocity warning for 30 seconds so server/pacing don't overwrite it
+      this.velocityWarningUntil = now + 30000;
+      // Clear conflicting messages while velocity is active
+      this.serverMessage = '';
+      this.pacingMessage = '';
+    } else if (now > this.velocityWarningUntil) {
+      // Only clear velocity warning after cooldown expires
       this.velocityWarning = '';
     }
   }
@@ -257,6 +267,11 @@ struct IndexPage {
    * Generates a deficit message if behind schedule, even between server polls.
    */
   private checkPacing(): void {
+    // Never override an active velocity warning with pacing info
+    if (Date.now() < this.velocityWarningUntil) {
+      this.pacingMessage = '';
+      return;
+    }
     if (this.curveData === null) {
       // Generate a simple local fallback curve if no server data
       this.generateLocalCurve();
@@ -380,13 +395,14 @@ struct IndexPage {
     this.currentIntake = log.totalIntake;
     this.entryCount = log.entries.length;
     this.updateProgress();
+    // Reset velocity cooldown on undo so we re-evaluate cleanly
+    this.velocityWarningUntil = 0;
     this.velocityWarning = '';
     this.checkVelocity(log);
+    this.checkPacing();
     HASyncService.syncToHA(log);
-    // Trigger server sync after undo
     const serverOn: boolean = await StorageService.isServerEnabled();
     if (serverOn) { this.pollServer(); }
-    this.checkPacing();
   }
 
   private getProgressColor(): string {
@@ -685,21 +701,22 @@ struct IndexPage {
             .fontColor(Constants.COLOR_TEXT_SECONDARY)
             .margin({ top: 1 })
 
-          if (this.serverMessage !== '') {
+          if (this.velocityWarning !== '') {
+            Text(this.velocityWarning)
+              .fontSize(7)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#FF3B30')
+              .textAlign(TextAlign.Center)
+              .maxLines(1)
+              .constraintSize({ maxWidth: 80 })
+              .margin({ top: 2 })
+          } else if (this.serverMessage !== '') {
             Text(this.serverMessage)
               .fontSize(7)
               .fontColor(Constants.COLOR_WARNING)
               .textAlign(TextAlign.Center)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .constraintSize({ maxWidth: 80 })
-              .margin({ top: 2 })
-          } else if (this.velocityWarning !== '') {
-            Text(this.velocityWarning)
-              .fontSize(7)
-              .fontColor('#FF3B30')
-              .textAlign(TextAlign.Center)
-              .maxLines(1)
               .constraintSize({ maxWidth: 80 })
               .margin({ top: 2 })
           } else if (this.pacingMessage !== '') {
